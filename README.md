@@ -8,7 +8,9 @@ It will help you creating a git repository with minimal required changes to star
 
 ## What do I have to do?
 
-You need to make sure you have at least docker and git installed in any Linux distribution.
+You need to make sure you have at least docker and git installed in any Linux distribution or MacOS.
+If you are using MacOS, then you also need to install gnu-sed using 'brew install gnu-sed'
+
 The other requirements will be installed automatically in a docker container by the script.
 
 Simply open the script and edit the first variables to match your coin requirements (total supply, coin unit, coin name, tcp ports..)
