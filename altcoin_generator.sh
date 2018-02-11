@@ -16,15 +16,24 @@
 # change the following variables to match your new coin
 COIN_NAME="MyCoin"
 COIN_UNIT="MYC"
-# 42 million lite coins at total
+# 42 million coins at total (litecoin total supply is 84000000)
 TOTAL_SUPPLY=42000000
 MAINNET_PORT="54321"
 TESTNET_PORT="54322"
 PHRASE="Some newspaper headline that describes something that happened today"
 # First letter of the wallet address. Check https://en.bitcoin.it/wiki/Base58Check_encoding
 PUBKEY_CHAR="20"
+# number of blocks to wait to be able to spend coinbase UTXO's
+COINBASE_MATURITY=100
 # leave CHAIN empty for main network, -regtest for regression network and -testnet for test network
 CHAIN="-regtest"
+# this is the amount of coins to get as a reward of mining the block of height 1. if not set this will default to 50
+#PREMINED_AMOUNT=10000
+# minimum chain work. Change this to 0x00 to make the nodes synchronize right away in the main network
+MINIMUM_CHAIN_WORK=0x00000000000000000000000000000000000000000000000ba50a60f8b56c7fe0
+
+# warning: change this to your own pubkey to get the genesis block mining reward
+GENESIS_REWARD_PUBKEY=044e0d4bc823e20e14d66396a64960c993585400c53f1e6decb273f249bfeba0e71f140ffa7316f2cdaaae574e7d72620538c3e7791ae9861dfe84dd2955fc85e8
 
 # dont change the following variables unless you know what you are doing
 GENESISHZERO_REPOS=https://github.com/lhartikk/GenesisH0
@@ -38,32 +47,17 @@ COIN_NAME_LOWER=${COIN_NAME,,}
 COIN_NAME_UPPER=${COIN_NAME^^}
 DIRNAME=$(dirname $0)
 DOCKER_NETWORK="172.18.0"
+DOCKER_IMAGE_LABEL="newcoin-env"
 
-if [ $DIRNAME =  "." ]; then
-    DIRNAME=$PWD
-fi
-
-cd $DIRNAME
-
-# sanity check
-if ! which docker &>/dev/null; then
-    echo Please install docker first
-    exit 1
-fi
-
-if ! which git &>/dev/null; then
-    echo Please install git first
-    exit 1
-fi
 
 docker_build_image()
 {
-    IMAGE=$(docker images -q ubuntu-newcoin)
+    IMAGE=$(docker images -q $DOCKER_IMAGE_LABEL)
     if [ -z $IMAGE ]; then
         echo Building docker image
-        if [ ! -f ubuntu-litecoin/Dockerfile ]; then
-            mkdir -p ubuntu-litecoin
-            cat <<EOF > ubuntu-litecoin/Dockerfile
+        if [ ! -f $DOCKER_IMAGE_LABEL/Dockerfile ]; then
+            mkdir -p $DOCKER_IMAGE_LABEL
+            cat <<EOF > $DOCKER_IMAGE_LABEL/Dockerfile
 FROM ubuntu:16.04
 RUN echo deb http://ppa.launchpad.net/bitcoin/bitcoin/ubuntu xenial main >> /etc/apt/sources.list
 RUN apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv D46F45428842CE5E
@@ -72,20 +66,44 @@ RUN apt-get -y install ccache git libboost-system1.58.0 libboost-filesystem1.58.
 RUN pip install construct==2.5.2 scrypt
 EOF
         fi 
-        docker build --label ubuntu-newcoin --tag ubuntu-newcoin $DIRNAME/ubuntu-litecoin/
+        docker build --label $DOCKER_IMAGE_LABEL --tag $DOCKER_IMAGE_LABEL $DIRNAME/$DOCKER_IMAGE_LABEL/
     else
         echo Docker image already built
     fi
 }
 
-docker_run_genesis() {
+docker_run_genesis()
+{
     mkdir -p $DIRNAME/.ccache
-    docker run -v $DIRNAME/GenesisH0:/GenesisH0 ubuntu-newcoin /bin/bash -c "$1"
+    docker run -v $DIRNAME/GenesisH0:/GenesisH0 $DOCKER_IMAGE_LABEL /bin/bash -c "$1"
 }
 
-docker_run() {
+docker_run()
+{
     mkdir -p $DIRNAME/.ccache
-    docker run -v $DIRNAME/GenesisH0:/GenesisH0 -v $DIRNAME/.ccache:/root/.ccache -v $DIRNAME/$COIN_NAME_LOWER:/$COIN_NAME_LOWER ubuntu-newcoin /bin/bash -c "$1"
+    docker run -v $DIRNAME/GenesisH0:/GenesisH0 -v $DIRNAME/.ccache:/root/.ccache -v $DIRNAME/$COIN_NAME_LOWER:/$COIN_NAME_LOWER $DOCKER_IMAGE_LABEL /bin/bash -c "$1"
+}
+
+docker_stop_nodes()
+{
+    echo "Stopping and docker nodes"
+    for id in $(docker ps -q -a  -f ancestor=$DOCKER_IMAGE_LABEL); do
+        docker stop $id
+    done
+}
+
+docker_remove_nodes()
+{
+    echo "Removing all docker nodes"
+    for id in $(docker ps -q -a  -f ancestor=$DOCKER_IMAGE_LABEL); do
+        docker rm $id
+    done
+}
+
+docker_remove_network()
+{
+    echo "Removing docker network"
+    docker network rm newcoin
 }
 
 docker_run_node()
@@ -103,7 +121,7 @@ EOF
         docker network create --subnet=$DOCKER_NETWORK.0/16 newcoin
     fi
 
-    docker run --net newcoin --ip $DOCKER_NETWORK.${NODE_NUMBER} -v $DIRNAME/miner${NODE_NUMBER}:/root/.$COIN_NAME_LOWER -v $DIRNAME/$COIN_NAME_LOWER:/$COIN_NAME_LOWER ubuntu-newcoin /bin/bash -c "$NODE_COMMAND"
+    docker run --net newcoin --ip $DOCKER_NETWORK.${NODE_NUMBER} -v $DIRNAME/miner${NODE_NUMBER}:/root/.$COIN_NAME_LOWER -v $DIRNAME/$COIN_NAME_LOWER:/$COIN_NAME_LOWER $DOCKER_IMAGE_LABEL /bin/bash -c "$NODE_COMMAND"
 }
 
 generate_genesis_block()
@@ -118,7 +136,7 @@ generate_genesis_block()
 
     if [ ! -f ${COIN_NAME}-main.txt ]; then
         echo "Mining genesis block... this procedure can take many hours of cpu work.."
-        docker_run_genesis "python /GenesisH0/genesis.py -a scrypt -z \"$PHRASE\" 2>&1 | tee /GenesisH0/${COIN_NAME}-main.txt"
+        docker_run_genesis "python /GenesisH0/genesis.py -a scrypt -z \"$PHRASE\" -p $GENESIS_REWARD_PUBKEY 2>&1 | tee /GenesisH0/${COIN_NAME}-main.txt"
     else
         echo "Genesis block already mined.."
         cat ${COIN_NAME}-main.txt
@@ -126,7 +144,7 @@ generate_genesis_block()
 
     if [ ! -f ${COIN_NAME}-test.txt ]; then
         echo "Mining genesis block of test network... this procedure can take many hours of cpu work.."
-        docker_run_genesis "python /GenesisH0/genesis.py  -t 1486949366 -a scrypt -z \"$PHRASE\" 2>&1 | tee /GenesisH0/${COIN_NAME}-test.txt"
+        docker_run_genesis "python /GenesisH0/genesis.py  -t 1486949366 -a scrypt -z \"$PHRASE\" -p $GENESIS_REWARD_PUBKEY 2>&1 | tee /GenesisH0/${COIN_NAME}-test.txt"
     else
         echo "Genesis block already mined.."
         cat ${COIN_NAME}-test.txt
@@ -134,7 +152,7 @@ generate_genesis_block()
 
     if [ ! -f ${COIN_NAME}-regtest.txt ]; then
         echo "Mining genesis block of regtest network... this procedure can take many hours of cpu work.."
-        docker_run_genesis "python /GenesisH0/genesis.py -t 1296688602 -b 0x207fffff -n 0 -a scrypt -z \"$PHRASE\" 2>&1 | tee /GenesisH0/${COIN_NAME}-regtest.txt"
+        docker_run_genesis "python /GenesisH0/genesis.py -t 1296688602 -b 0x207fffff -n 0 -a scrypt -z \"$PHRASE\" -p $GENESIS_REWARD_PUBKEY 2>&1 | tee /GenesisH0/${COIN_NAME}-regtest.txt"
     else
         echo "Genesis block already mined.."
         cat ${COIN_NAME}-regtest.txt
@@ -159,7 +177,7 @@ generate_genesis_block()
 newcoin_replace_vars()
 {
     if [ -d $COIN_NAME_LOWER ]; then
-        echo "Warning: $COIN_NAME_LOWER already existing"
+        echo "Warning: $COIN_NAME_LOWER already existing. Not replacing any values"
         return 0
     fi
     # clone litecoin
@@ -210,30 +228,96 @@ newcoin_replace_vars()
 
     sed -i "s,vSeeds.push_back,//vSeeds.push_back,g" src/chainparams.cpp
 
+    if [ -n "$PREMINED_AMOUNT" ]; then
+        sed -i "s/CAmount nSubsidy = 50 \* COIN;/if \(nHeight == 1\) return COIN \* $PREMINED_AMOUNT;\n    CAmount nSubsidy = 50 \* COIN;/" src/validation.cpp
+    fi
+
+    sed -i "s/COINBASE_MATURITY = 100/COINBASE_MATURITY = $COINBASE_MATURITY/" src/consensus/consensus.h
+
+    sed -i "s/0x00000000000000000000000000000000000000000000000ba50a60f8b56c7fe0/$MINIMUM_CHAIN_WORK/" src/chainparams.cpp
+
     # TODO: fix checkpoints
     popd
 }
 
 build_new_coin()
 {
-    if [ ! -x $COIN_NAME_LOWER/src/${COIN_NAME_LOWER}d ]; then
+    # only run autogen.sh/configure if not done previously
+    if [ ! -e $COIN_NAME_LOWER/Makefile ]; then
         docker_run "cd /$COIN_NAME_LOWER ; bash  /$COIN_NAME_LOWER/autogen.sh"
         docker_run "cd /$COIN_NAME_LOWER ; bash  /$COIN_NAME_LOWER/configure"
-        docker_run "cd /$COIN_NAME_LOWER ; make -j2"
     fi
+    # always build as the user could have manually changed some files
+    docker_run "cd /$COIN_NAME_LOWER ; make -j2"
 }
 
-docker_build_image
-generate_genesis_block
-newcoin_replace_vars
-build_new_coin
 
-docker_run_node 2 "cd /$COIN_NAME_LOWER ; ./src/${COIN_NAME_LOWER}d $CHAIN -listen -noconnect -bind=$DOCKER_NETWORK.2 -addnode=$DOCKER_NETWORK.1 -addnode=$DOCKER_NETWORK.3 -addnode=$DOCKER_NETWORK.4 -addnode=$DOCKER_NETWORK.5" &
-docker_run_node 3 "cd /$COIN_NAME_LOWER ; ./src/${COIN_NAME_LOWER}d $CHAIN -listen -noconnect -bind=$DOCKER_NETWORK.3 -addnode=$DOCKER_NETWORK.1 -addnode=$DOCKER_NETWORK.2 -addnode=$DOCKER_NETWORK.4 -addnode=$DOCKER_NETWORK.5" &
-docker_run_node 4 "cd /$COIN_NAME_LOWER ; ./src/${COIN_NAME_LOWER}d $CHAIN -listen -noconnect -bind=$DOCKER_NETWORK.4 -addnode=$DOCKER_NETWORK.1 -addnode=$DOCKER_NETWORK.2 -addnode=$DOCKER_NETWORK.3 -addnode=$DOCKER_NETWORK.5" &
-docker_run_node 5 "cd /$COIN_NAME_LOWER ; ./src/${COIN_NAME_LOWER}d $CHAIN -listen -noconnect -bind=$DOCKER_NETWORK.5 -addnode=$DOCKER_NETWORK.1 -addnode=$DOCKER_NETWORK.2 -addnode=$DOCKER_NETWORK.3 -addnode=$DOCKER_NETWORK.4" &
+if [ $DIRNAME =  "." ]; then
+    DIRNAME=$PWD
+fi
 
-echo "Docker containers should be up and running now. You may run the following command to check the network status:
-for i in \$(docker ps -q); do docker exec \$i /$COIN_NAME_LOWER/src/${COIN_NAME_LOWER}-cli -regtest getinfo; done"
-echo "To ask the nodes to mine some blocks simply run:
-for i in \$(docker ps -q); do docker exec \$i /$COIN_NAME_LOWER/src/${COIN_NAME_LOWER}-cli -regtest generate 2  & done"
+cd $DIRNAME
+
+# sanity check
+if ! which docker &>/dev/null; then
+    echo Please install docker first
+    exit 1
+fi
+
+if ! which git &>/dev/null; then
+    echo Please install git first
+    exit 1
+fi
+
+case $1 in
+    stop)
+        docker_stop_nodes
+    ;;
+    remove_nodes)
+	docker_stop_nodes
+	docker_remove_nodes
+    ;;
+    clean_up)
+        docker_stop_nodes
+        for i in $(seq 2 5); do
+           docker_run_node $i "rm -rf /$COIN_NAME_LOWER /root/.$COIN_NAME_LOWER" &>/dev/null
+        done
+	docker_remove_nodes
+        docker_remove_network
+	rm -rf $COIN_NAME_LOWER
+	rm -f GenesisH0/${COIN_NAME}-*.txt
+        for i in $(seq 2 5); do
+           rm -rf miner$i
+        done
+
+    ;;
+    start)
+        if [ -n "$(docker ps -q -f ancestor=$DOCKER_IMAGE_LABEL)" ]; then
+            echo "There are nodes running. Please stop them first with: $0 stop"
+            exit 1
+        fi
+        docker_build_image
+        generate_genesis_block
+        newcoin_replace_vars
+        build_new_coin
+
+        docker_run_node 2 "cd /$COIN_NAME_LOWER ; ./src/${COIN_NAME_LOWER}d $CHAIN -listen -noconnect -bind=$DOCKER_NETWORK.2 -addnode=$DOCKER_NETWORK.1 -addnode=$DOCKER_NETWORK.3 -addnode=$DOCKER_NETWORK.4 -addnode=$DOCKER_NETWORK.5" &
+        docker_run_node 3 "cd /$COIN_NAME_LOWER ; ./src/${COIN_NAME_LOWER}d $CHAIN -listen -noconnect -bind=$DOCKER_NETWORK.3 -addnode=$DOCKER_NETWORK.1 -addnode=$DOCKER_NETWORK.2 -addnode=$DOCKER_NETWORK.4 -addnode=$DOCKER_NETWORK.5" &
+        docker_run_node 4 "cd /$COIN_NAME_LOWER ; ./src/${COIN_NAME_LOWER}d $CHAIN -listen -noconnect -bind=$DOCKER_NETWORK.4 -addnode=$DOCKER_NETWORK.1 -addnode=$DOCKER_NETWORK.2 -addnode=$DOCKER_NETWORK.3 -addnode=$DOCKER_NETWORK.5" &
+        docker_run_node 5 "cd /$COIN_NAME_LOWER ; ./src/${COIN_NAME_LOWER}d $CHAIN -listen -noconnect -bind=$DOCKER_NETWORK.5 -addnode=$DOCKER_NETWORK.1 -addnode=$DOCKER_NETWORK.2 -addnode=$DOCKER_NETWORK.3 -addnode=$DOCKER_NETWORK.4" &
+
+        echo "Docker containers should be up and running now. You may run the following command to check the network status:
+for i in \$(docker ps -q); do docker exec \$i /$COIN_NAME_LOWER/src/${COIN_NAME_LOWER}-cli $CHAIN getinfo; done"
+        echo "To ask the nodes to mine some blocks simply run:
+for i in \$(docker ps -q); do docker exec \$i /$COIN_NAME_LOWER/src/${COIN_NAME_LOWER}-cli $CHAIN generate 2  & done"
+        exit 1
+    ;;
+    *)
+        cat <<EOF
+Usage: $0 (start|stop|remove_nodes|clean_up)
+ - start: bootstrap environment, build and run your new coin
+ - stop: simply stop the containers without removing them
+ - remove_nodes: remove the old docker container images. This will stop them first if necessary.
+ - clean_up: WARNING: this will stop and remove docker containers and network, source code, genesis block information and nodes data directory. (to start from scratch)
+EOF
+esac

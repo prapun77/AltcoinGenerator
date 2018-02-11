@@ -8,11 +8,17 @@ It will help you creating a git repository with minimal required changes to star
 
 ## What do I have to do?
 
-You need to make sure you have at least docker and git installed.
+You need to make sure you have at least docker and git installed in any Linux distribution.
 The other requirements will be installed automatically in a docker container by the script.
 
 Simply open the script and edit the first variables to match your coin requirements (total supply, coin unit, coin name, tcp ports..)
 Then simply run the script like this:
+
+```
+bash altcoin_generator.sh start
+```
+
+To see all possible options run the script like this:
 
 ```
 bash altcoin_generator.sh
@@ -29,6 +35,7 @@ The script will perform a couple of actions:
   * Build your new coin
   * Run 4 docker nodes with your coin daemon and connect each other.
     * A directory mapped for each node will be created: miner2, miner3, miner4, miner5. They contain data and configuration of each independent node.
+  * The GENESIS_REWARD_PUBKEY will be used in the UTXO of the genesis block. If you don't change it to your own before mining the genesis block you are agreeing to pay me the genesis block reward in case your coin succeeds (Thanks! :p)
   
 ## What can I do next?
 
@@ -48,7 +55,11 @@ Yes.
   
 ## I think something went wrong!
 
-Then you can just remove all directories that were created by the script and start all over again.
+Then you can clean up the mess with:
+
+```
+bash altcoin_generator.sh clean_up
+```
 
 ## Can I help the project?
 Sure. You can either submit patches, or make a donation if you found this project useful:
