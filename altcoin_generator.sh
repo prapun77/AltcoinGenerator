@@ -29,8 +29,6 @@ COINBASE_MATURITY=100
 CHAIN="-regtest"
 # this is the amount of coins to get as a reward of mining the block of height 1. if not set this will default to 50
 #PREMINED_AMOUNT=10000
-# minimum chain work. Change this to 0x00 to make the nodes synchronize right away in the main network
-MINIMUM_CHAIN_WORK=0x00000000000000000000000000000000000000000000000ba50a60f8b56c7fe0
 
 # warning: change this to your own pubkey to get the genesis block mining reward
 GENESIS_REWARD_PUBKEY=044e0d4bc823e20e14d66396a64960c993585400c53f1e6decb273f249bfeba0e71f140ffa7316f2cdaaae574e7d72620538c3e7791ae9861dfe84dd2955fc85e8
@@ -44,6 +42,8 @@ LITECOIN_MERKLE_HASH=97ddfbbae6be97fd6cdf3e7ca13232a3afff2353e29badfab7f73011edd
 LITECOIN_MAIN_GENESIS_HASH=12a765e31ffd4059bada1e25190f6e98c99d9714d334efa41a195a7e7e04bfe2
 LITECOIN_TEST_GENESIS_HASH=4966625a4b2851d9fdee139e56211a0d88575f59ed816ff5e6a63deb4e3e29a0
 LITECOIN_REGTEST_GENESIS_HASH=530827f38f93b43ed12af0b3ad25a288dc02ed74d6d7857862df51fc56c416f9
+MINIMUM_CHAIN_WORK_MAIN=0x000000000000000000000000000000000000000000000006805c7318ce2736c0
+MINIMUM_CHAIN_WORK_TEST=0x000000000000000000000000000000000000000000000000000000054cb9e7a0
 COIN_NAME_LOWER=$(echo $COIN_NAME | tr '[:upper:]' '[:lower:]')
 COIN_NAME_UPPER=$(echo $COIN_NAME | tr '[:lower:]' '[:upper:]')
 DIRNAME=$(dirname $0)
@@ -189,6 +189,11 @@ newcoin_replace_vars()
     if [ ! -d "litecoin-master" ]; then
         # clone litecoin and keep local cache
         git clone -b $LITECOIN_BRANCH $LITECOIN_REPOS litecoin-master
+    else
+        echo "Updating master branch"
+        pushd litecoin-master
+        git pull
+        popd
     fi
 
     git clone -b $LITECOIN_BRANCH litecoin-master $COIN_NAME_LOWER
@@ -244,7 +249,17 @@ newcoin_replace_vars()
 
     $SED -i "s/COINBASE_MATURITY = 100/COINBASE_MATURITY = $COINBASE_MATURITY/" src/consensus/consensus.h
 
-    $SED -i "s/0x00000000000000000000000000000000000000000000000ba50a60f8b56c7fe0/$MINIMUM_CHAIN_WORK/" src/chainparams.cpp
+    # reset minimum chain work to 0
+    $SED -i "s/$MINIMUM_CHAIN_WORK_MAIN/0x00/" src/chainparams.cpp
+    $SED -i "s/$MINIMUM_CHAIN_WORK_TEST/0x00/" src/chainparams.cpp
+
+    # change bip activation heights
+    # bip 34
+    $SED -i "s/710000/0/" src/chainparams.cpp
+    # bip 65
+    $SED -i "s/918684/0/" src/chainparams.cpp
+    # bip 66
+    $SED -i "s/811879/0/" src/chainparams.cpp
 
     # TODO: fix checkpoints
     popd
