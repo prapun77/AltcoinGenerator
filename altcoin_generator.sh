@@ -36,6 +36,7 @@ MINIMUM_CHAIN_WORK=0x00000000000000000000000000000000000000000000000ba50a60f8b56
 GENESIS_REWARD_PUBKEY=044e0d4bc823e20e14d66396a64960c993585400c53f1e6decb273f249bfeba0e71f140ffa7316f2cdaaae574e7d72620538c3e7791ae9861dfe84dd2955fc85e8
 
 # dont change the following variables unless you know what you are doing
+LITECOIN_BRANCH=0.14
 GENESISHZERO_REPOS=https://github.com/lhartikk/GenesisH0
 LITECOIN_REPOS=https://github.com/litecoin-project/litecoin.git
 LITECOIN_PUB_KEY=040184710fa689ad5023690c80f3a49c8f13f8d45b8c857fbcbc8bc4a8e4d3eb4b10f4d4604fa08dce601aaf0f470216fe1b51850b4acf21b179c45070ac7b03a9
@@ -181,7 +182,7 @@ newcoin_replace_vars()
         return 0
     fi
     # clone litecoin
-    git clone $LITECOIN_REPOS $COIN_NAME_LOWER
+    git clone -b $LITECOIN_BRANCH $LITECOIN_REPOS $COIN_NAME_LOWER
 
     pushd $COIN_NAME_LOWER
 
